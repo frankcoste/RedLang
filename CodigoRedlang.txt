@@ -1,0 +1,89 @@
+declare num1: i;
+declare num2: i;
+
+show("Ingresa num1: ");
+ask(num1);
+
+show("Ingresa num2: ");
+ask(num2);
+func suma(num1: i, num2: i) : i {
+    give num1 + num2;
+}
+
+func resta(num1: i, num2: i) : i {
+    give num1 - num2;
+}
+
+func multiplica(num1: i, num2: i) : i {
+    give num1 * num2;
+}
+
+func factorial(num: i) : i {
+    check (num <= 1) {
+        give 1;
+    } otherwise {
+        give num * factorial(num - 1);
+    }
+}
+
+
+declare resultado_suma: i = suma(num1, num2);
+show("Resultado suma:");
+show(resultado_suma);
+
+declare resultado_resta: i = resta(num1, num2);
+show("Resultado resta:");
+show(resultado_resta);
+
+declare resultado_mult: i = multiplica(num1, num2);
+show("Resultado multiplicación:");
+show(resultado_mult);
+
+declare contador: i = 0;
+repeat (contador < 3) {
+    set contador = contador + 1;
+    show("Contador:");
+    show(contador);
+}
+
+declare total: i = 0;
+loop (declare idx: i = 0; idx < 5; set idx = idx + 1) {
+    set total = total + idx;
+    show("Total acumulado:");
+    show(total);
+}
+
+declare mayor: i = 0;
+check (num1 > num2) {
+    set mayor = num1;
+} otherwise {
+    set mayor = num2;
+}
+show("Mayor valor:");
+show(mayor);
+
+declare fact5: i = factorial(5);
+show("Factorial de 5:");
+show(fact5);
+
+declare precio: f = 19.99;
+declare descuento: f = 0.15;
+declare precio_final: f = precio - precio * descuento;
+show("Precio final:");
+show(precio_final);
+
+declare es_valido: b = true;
+declare no_valido: b = false;
+
+show("Es válido:");
+show(es_valido);
+show("No válido:");
+show(no_valido);
+
+declare division: f = 20.0 / 4.0;
+show("División 20/4:");
+show(division);
+
+declare modulo: i = 17 % 5;
+show("Módulo 17%5:");
+show(modulo);

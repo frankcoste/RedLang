@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "dgSpecHash": "596aqGhdMteRuXdVuoEa1OG06idUai45c3EfGmSWziw5JPcszrxoFDJKPFUvRozRdEgzBfnh6dy0CphbsV5hbg==",
+  "success": true,
+  "projectFilePath": "/mnt/c/Users/frank/source/repos/EBNF/MiProyectoANTLR/MiProyectoANTLR.csproj",
+  "expectedPackageFiles": [
+    "/home/frank/.nuget/packages/antlr4.runtime.standard/4.13.1/antlr4.runtime.standard.4.13.1.nupkg.sha512",
+    "/home/frank/.nuget/packages/libllvm/20.1.2/libllvm.20.1.2.nupkg.sha512",
+    "/home/frank/.nuget/packages/llvmsharp/20.1.2/llvmsharp.20.1.2.nupkg.sha512",
+    "/home/frank/.nuget/packages/llvmsharp.interop/20.1.2/llvmsharp.interop.20.1.2.nupkg.sha512"
+  ],
+  "logs": []
+}
