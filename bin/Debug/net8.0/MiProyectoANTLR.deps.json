@@ -20,7 +20,7 @@
         "runtime": {
           "lib/netstandard2.0/Antlr4.Runtime.Standard.dll": {
             "assemblyVersion": "4.13.1.0",
-            "fileVersion": "0.0.0.0"
+            "fileVersion": "4.13.1.0"
           }
         }
       },

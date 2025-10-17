@@ -26,6 +26,7 @@ func factorial(num: i) : i {
     }
 }
 
+declare negativo:i = -10;
 
 declare resultado_suma: i = suma(num1, num2);
 show("Resultado suma:");

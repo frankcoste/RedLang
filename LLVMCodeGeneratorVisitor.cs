@@ -795,3 +795,4 @@ public override LLVMValueRef VisitWhileStmt([NotNull] RedLangParser.WhileStmtCon
     public override LLVMValueRef VisitReadFileStmt([NotNull] RedLangParser.ReadFileStmtContext context) => default;
     public override LLVMValueRef VisitWriteFileStmt([NotNull] RedLangParser.WriteFileStmtContext context) => default;
 }
+

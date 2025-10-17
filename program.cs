@@ -16,12 +16,12 @@ namespace MiProyectoANTLR
 
                 if (!File.Exists("CodigoRedlang.txt"))
                 {
-                    Console.WriteLine("ERROR: No se encuentra el archivo CodigoPrueba.txt");
+                    Console.WriteLine("ERROR: No se encuentra el archivo CodigoRedlang.txt");
                     return;
                 }
 
                 Console.WriteLine("Leyendo archivo...");
-                string input = File.ReadAllText("CodigoPrueba.txt");
+                string input = File.ReadAllText("CodigoRedlang.txt");
                 Console.WriteLine($"Contenido leído ({input.Length} caracteres)");
 
                 Console.WriteLine("Creando lexer...");
