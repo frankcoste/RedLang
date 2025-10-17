@@ -257,83 +257,63 @@ public class LLVMCodeGeneratorVisitor : RedLangBaseVisitor<LLVMValueRef>
             return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int1, 0, false);
         return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
     }
-
     public override LLVMValueRef VisitPrimary([NotNull] RedLangParser.PrimaryContext context)
     {
-        // Verificar callExpr primero (tiene prioridad)
+        if (context.literal() != null)
+        {
+            return Visit(context.literal()); // Manejar explícitamente los literales
+        }
+        if (context.expression() != null)
+        {
+            return Visit(context.expression()); // Manejar explícitamente las expresiones entre paréntesis
+        }
         if (context.callExpr() != null)
         {
             return Visit(context.callExpr());
         }
-        
-        // Verificar arrayAccess
         if (context.arrayAccess() != null)
         {
             return Visit(context.arrayAccess());
         }
-        
-        // Variable simple
         if (context.IDENT() != null)
         {
             string name = context.IDENT().GetText();
-            
-            // Verificar si es un array (no debería llegar aquí para arrays, pero por si acaso)
-            if (arrayPointers.ContainsKey(name))
-            {
-                Console.WriteLine($"[ERROR] Intento de usar array '{name}' sin índice");
-                return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
-            }
-            
             if (namedValues.ContainsKey(name))
                 return builder.BuildLoad2(variableTypes[name], namedValues[name], name);
             
-            return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
+            Console.WriteLine($"[ERROR] Variable no definida: '{name}'");
+            return GetDefaultValue(LLVMTypeRef.Int32); // Devolver un valor por defecto
         }
-        
-        // Literal o expresión entre paréntesis
+        // Este caso no debería ocurrir si la gramática es correcta
         return base.VisitPrimary(context);
     }
 
     public override LLVMValueRef VisitUnary([NotNull] RedLangParser.UnaryContext context)
     {
-        // Si tenemos operador unario (- o not)
-        if (context.MINUS() != null || context.NOT() != null)
-        {
-            // Primero verificar si hay un unary anidado
-            if (context.unary() != null)
-            {
-                var value = Visit(context.unary());
-                
-                if (value.Handle == IntPtr.Zero)
-                {
-                    Console.WriteLine("[ERROR] VisitUnary: Visit(unary) devolvió un valor nulo");
-                    return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
-                }
+        // La expresión a la que se aplica el operador (o no) es siempre el último hijo.
+        var operandNode = context.GetChild(context.ChildCount - 1);
+        var operand = Visit(operandNode);
 
-                if (context.MINUS() != null)
-                    return value.TypeOf.Kind == LLVMTypeKind.LLVMIntegerTypeKind
-                        ? builder.BuildNeg(value, "negtmp")
-                        : builder.BuildFNeg(value, "fnegtmp");
-                else if (context.NOT() != null)
-                    return builder.BuildNot(value, "nottmp");
-            }
-        }
-        
-        // Si no hay operador unario, visitar el primary
-        if (context.primary() != null)
+        if (operand.Handle == IntPtr.Zero)
         {
-            var value = Visit(context.primary());
-            
-            if (value.Handle == IntPtr.Zero)
-            {
-                Console.WriteLine("[ERROR] VisitUnary: Visit(primary) devolvió un valor nulo");
-                return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
-            }
-            
-            return value;
+            Console.WriteLine($"[ERROR] VisitUnary: el operando de '{context.GetText()}' evaluó a nulo.");
+            return GetDefaultValue(LLVMTypeRef.Int32);
         }
 
-        return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
+        // Aplicar el operador si existe
+        if (context.MINUS() != null)
+        {
+            return operand.TypeOf.Kind == LLVMTypeKind.LLVMIntegerTypeKind
+                ? builder.BuildNeg(operand, "negtmp")
+                : builder.BuildFNeg(operand, "fnegtmp");
+        }
+        if (context.NOT() != null)
+        {
+            return builder.BuildNot(operand, "nottmp");
+        }
+
+        // Si no hay operador, simplemente devolver el valor del operando
+        return operand;
     }
 
     public override LLVMValueRef VisitFactor([NotNull] RedLangParser.FactorContext context)
@@ -900,27 +880,36 @@ public override LLVMValueRef VisitWhileStmt([NotNull] RedLangParser.WhileStmtCon
 
         if (sourceType.Handle == destType.Handle)
         {
-            return value; // No se necesita cast, los tipos ya son iguales
+            return value; // No se necesita cast
         }
+
+        // --- AÑADE ESTA SECCIÓN ---
+        // De entero (i32) a booleano (i1)
+        if (sourceType.Kind == LLVMTypeKind.LLVMIntegerTypeKind && destType.Kind == LLVMTypeKind.LLVMIntegerTypeKind && destType.IntWidth == 1)
+        {
+            var zero = LLVMValueRef.CreateConstInt(sourceType, 0);
+            return builder.BuildICmp(LLVMIntPredicate.LLVMIntNE, value, zero, "i32tobool"); // Equivale a (value != 0)
+        }
+        // --- FIN DE LA SECCIÓN AÑADIDA ---
 
         // De entero a flotante (i32 -> double)
         if (sourceType.Kind == LLVMTypeKind.LLVMIntegerTypeKind && destType.Kind == LLVMTypeKind.LLVMDoubleTypeKind)
         {
-            return builder.BuildSIToFP(value, destType, name); // SIToFP = Signed Integer to Floating Point
+            return builder.BuildSIToFP(value, destType, name);
         }
 
         // De flotante a entero (double -> i32)
         if (sourceType.Kind == LLVMTypeKind.LLVMDoubleTypeKind && destType.Kind == LLVMTypeKind.LLVMIntegerTypeKind)
         {
-            return builder.BuildFPToSI(value, destType, name); // FPToSI = Floating Point to Signed Integer
+            return builder.BuildFPToSI(value, destType, name);
         }
-
+        
         // De booleano (i1) a entero (i32) o flotante (double)
         if (sourceType.Kind == LLVMTypeKind.LLVMIntegerTypeKind && sourceType.IntWidth == 1)
         {
             if (destType.Kind == LLVMTypeKind.LLVMIntegerTypeKind) // i1 -> i32
             {
-                return builder.BuildZExt(value, destType, name); // ZExt = Zero Extend
+                return builder.BuildZExt(value, destType, name);
             }
             if (destType.Kind == LLVMTypeKind.LLVMDoubleTypeKind) // i1 -> double
             {
@@ -929,7 +918,6 @@ public override LLVMValueRef VisitWhileStmt([NotNull] RedLangParser.WhileStmtCon
             }
         }
 
-        // Si no se encuentra una conversión válida, devuelve el valor original (puede causar errores de LLVM, pero evita que el compilador se caiga)
         Console.WriteLine($"[WARNING] No cast available from {sourceType} to {destType}");
         return value;
     }

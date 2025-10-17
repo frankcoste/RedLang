@@ -147,7 +147,8 @@ entry:
   %fmultmp = fmul double %x32, 2.500000e+00
   %y33 = load double, ptr %y, align 8
   %fdivtmp = fdiv double %y33, 2.000000e+00
-  store double 0.000000e+00, ptr %result, align 8
+  %faddtmp = fadd double %fmultmp, %fdivtmp
+  store double %faddtmp, ptr %result, align 8
   %printcall34 = call i32 (ptr, ...) @printf(ptr @fmt, ptr @str.16)
   %result35 = load double, ptr %result, align 8
   %printcall36 = call i32 (ptr, ...) @printf(ptr @fmt.7, double %result35)
@@ -157,7 +158,9 @@ entry:
   %fcmptmp = fcmp oge double %x37, %y38
   %x39 = load double, ptr %x, align 8
   %feqtmp = fcmp oeq double %x39, 0.000000e+00
-  store i32 0, ptr %flag, align 4
+  %nottmp = xor i1 %feqtmp, true
+  %andtmp = and i1 %fcmptmp, %nottmp
+  store i1 %andtmp, ptr %flag, align 1
   %printcall40 = call i32 (ptr, ...) @printf(ptr @fmt, ptr @str.17)
   %flag41 = load i1, ptr %flag, align 1
   %bool_str42 = select i1 %flag41, ptr @str_true.18, ptr @str_false.19
@@ -166,7 +169,8 @@ entry:
   %x44 = load double, ptr %x, align 8
   %y45 = load double, ptr %y, align 8
   %fnetmp = fcmp one double %x44, %y45
-  store i1 false, ptr %isEqual, align 1
+  %ortmp = or i1 %fnetmp, false
+  store i1 %ortmp, ptr %isEqual, align 1
   %printcall46 = call i32 (ptr, ...) @printf(ptr @fmt, ptr @str.20)
   %isEqual47 = load i1, ptr %isEqual, align 1
   %bool_str48 = select i1 %isEqual47, ptr @str_true.21, ptr @str_false.22
@@ -275,7 +279,7 @@ ifcont81:                                         ; preds = %then80, %afterfor
   %printcall98 = call i32 (ptr, ...) @printf(ptr @fmt.5, i32 %arrayload97)
   %printcall99 = call i32 (ptr, ...) @printf(ptr @fmt, ptr @str.40)
   %complex = alloca i1, align 1
-  store i32 0, ptr %complex, align 4
+  store i1 false, ptr %complex, align 1
   %printcall100 = call i32 (ptr, ...) @printf(ptr @fmt, ptr @str.41)
   %complex101 = load i1, ptr %complex, align 1
   %bool_str102 = select i1 %complex101, ptr @str_true.42, ptr @str_false.43
