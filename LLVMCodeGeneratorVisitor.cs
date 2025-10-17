@@ -14,6 +14,8 @@ public class LLVMCodeGeneratorVisitor : RedLangBaseVisitor<LLVMValueRef>
     private readonly Dictionary<string, LLVMTypeRef> variableTypes = new();
     private readonly Dictionary<string, LLVMValueRef> functions = new();
     private readonly Dictionary<string, LLVMTypeRef> functionTypes = new();
+    private Dictionary<string, LLVMValueRef> arrayPointers = new();
+    private Dictionary<string, int> arraySizes = new();
 
     // Cache para cadenas de formato (reutilizarlas evita duplicados)
     private readonly Dictionary<string, LLVMValueRef> formatStrings = new();
@@ -27,72 +29,6 @@ public class LLVMCodeGeneratorVisitor : RedLangBaseVisitor<LLVMValueRef>
         module = context.CreateModuleWithName(moduleName);
         builder = context.CreateBuilder();
     }
-
-    public string GetIR()
-    {
-        return module.PrintToString();
-    }
-
-    public void WriteIRToFile(string filename)
-    {
-        module.PrintToFile(filename);
-    }
-
-    private LLVMTypeRef GetLLVMType(string typeName)
-    {
-        return typeName switch
-        {
-            "i" => LLVMTypeRef.Int32,
-            "f" => LLVMTypeRef.Double,
-            "s" => LLVMTypeRef.CreatePointer(LLVMTypeRef.Int8, 0),
-            "b" => LLVMTypeRef.Int1,
-            _ => LLVMTypeRef.Int32
-        };
-    }
-
-    private LLVMValueRef GetDefaultValue(LLVMTypeRef type)
-    {
-        if (type.Kind == LLVMTypeKind.LLVMIntegerTypeKind)
-            return LLVMValueRef.CreateConstInt(type, 0, false);
-        else if (type.Kind == LLVMTypeKind.LLVMDoubleTypeKind)
-            return LLVMValueRef.CreateConstReal(type, 0.0);
-        else if (type.Kind == LLVMTypeKind.LLVMPointerTypeKind)
-            return LLVMValueRef.CreateConstPointerNull(type);
-        return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
-    }
-
-    // ----------------- Helpers para printf/show -----------------
-    private LLVMValueRef EnsurePrintfDeclared()
-    {
-        // Si ya registramos printf (bajo la clave "show"), devolvemos esa referencia
-        if (functions.ContainsKey("show"))
-            return functions["show"];
-
-        // Crear tipo de printf: int printf(i8* fmt, ...)
-        var printfParamTypes = new[] { LLVMTypeRef.CreatePointer(LLVMTypeRef.Int8, 0) };
-        var printfType = LLVMTypeRef.CreateFunction(LLVMTypeRef.Int32, printfParamTypes, true);
-
-        var printfFunc = module.AddFunction("printf", printfType);
-
-        // Guardamos en los diccionarios pero bajo la clave "show" para que el resto del código
-        // pueda usar functions["show"] cuando el usuario escriba show(...)
-        functions["show"] = printfFunc;
-        functionTypes["show"] = printfType;
-
-        return printfFunc;
-    }
-
-    private LLVMValueRef GetOrCreateFormatString(string format)
-    {
-        if (formatStrings.ContainsKey(format))
-            return formatStrings[format];
-
-        // BuildGlobalStringPtr crea un global y devuelve i8* apuntando a él
-        var gstr = builder.BuildGlobalStringPtr(format, "fmt");
-        formatStrings[format] = gstr;
-        return gstr;
-    }
-    // ------------------------------------------------------------
 
     public override LLVMValueRef VisitProgram([NotNull] RedLangParser.ProgramContext context)
     {
@@ -235,10 +171,36 @@ public class LLVMCodeGeneratorVisitor : RedLangBaseVisitor<LLVMValueRef>
     public override LLVMValueRef VisitDeclaration([NotNull] RedLangParser.DeclarationContext context)
     {
         string varName = context.IDENT().GetText();
-        var varType = GetLLVMType(context.type().GetText());
+        string typeText = context.type().GetText();
 
-        Console.WriteLine($"  [DEBUG] Declarando variable '{varName}' tipo '{context.type().GetText()}'");
+        Console.WriteLine($"  [DEBUG] Declarando variable '{varName}' tipo '{typeText}'");
 
+        // Verificar si es un array
+        if (typeText.StartsWith("array["))
+        {
+            // Extraer el tipo base del array
+            string baseType = typeText.Substring(6, typeText.Length - 7); // Quitar "array[" y "]"
+            var elementType = GetLLVMType(baseType);
+            
+            // Por ahora, crear un array de tamaño fijo (100 elementos)
+            int arraySize = 100;
+            var arrayType = LLVMTypeRef.CreateArray(elementType, (uint)arraySize);
+            
+            // Alocar el array
+            var arrayAlloca = builder.BuildAlloca(arrayType, varName);
+            arrayPointers[varName] = arrayAlloca;
+            arraySizes[varName] = arraySize;
+            
+            // Inicializar a ceros
+            var zeroInit = LLVMValueRef.CreateConstNull(arrayType);
+            builder.BuildStore(zeroInit, arrayAlloca);
+            
+            Console.WriteLine($"  [DEBUG] Array '{varName}' declarado con {arraySize} elementos");
+            return arrayAlloca;
+        }
+        
+        // Declaración normal (no array)
+        var varType = GetLLVMType(typeText);
         var alloca = builder.BuildAlloca(varType, varName);
         namedValues[varName] = alloca;
         variableTypes[varName] = varType;
@@ -247,8 +209,16 @@ public class LLVMCodeGeneratorVisitor : RedLangBaseVisitor<LLVMValueRef>
         {
             Console.WriteLine($"  [DEBUG] Evaluando expresión: '{context.expression().GetText()}'");
             var value = Visit(context.expression());
-            Console.WriteLine($"  [DEBUG] Resultado: {value}");
-            builder.BuildStore(value, alloca);
+            
+            if (value.Handle == IntPtr.Zero)
+            {
+                Console.WriteLine($"  [ERROR] Expresión evaluó a null");
+                value = GetDefaultValue(varType);
+            }
+            var castedValue = BuildCast(value, varType);
+            
+            Console.WriteLine($"  [DEBUG] Resultado: {castedValue}");
+            builder.BuildStore(castedValue, alloca); 
         }
         else
         {
@@ -257,14 +227,18 @@ public class LLVMCodeGeneratorVisitor : RedLangBaseVisitor<LLVMValueRef>
 
         return alloca;
     }
-
     public override LLVMValueRef VisitAssignment([NotNull] RedLangParser.AssignmentContext context)
     {
         string varName = context.IDENT().GetText();
         var value = Visit(context.expression());
 
         if (namedValues.ContainsKey(varName))
-            builder.BuildStore(value, namedValues[varName]);
+        {
+            var varType = variableTypes[varName]; // Obtener el tipo de la variable de destino
+            var castedValue = BuildCast(value, varType); // Convertir el valor
+            builder.BuildStore(castedValue, namedValues[varName]);
+            return castedValue; // Devuelve el valor convertido
+        }
 
         return value;
     }
@@ -286,39 +260,80 @@ public class LLVMCodeGeneratorVisitor : RedLangBaseVisitor<LLVMValueRef>
 
     public override LLVMValueRef VisitPrimary([NotNull] RedLangParser.PrimaryContext context)
     {
+        // Verificar callExpr primero (tiene prioridad)
+        if (context.callExpr() != null)
+        {
+            return Visit(context.callExpr());
+        }
+        
+        // Verificar arrayAccess
+        if (context.arrayAccess() != null)
+        {
+            return Visit(context.arrayAccess());
+        }
+        
+        // Variable simple
         if (context.IDENT() != null)
         {
             string name = context.IDENT().GetText();
+            
+            // Verificar si es un array (no debería llegar aquí para arrays, pero por si acaso)
+            if (arrayPointers.ContainsKey(name))
+            {
+                Console.WriteLine($"[ERROR] Intento de usar array '{name}' sin índice");
+                return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
+            }
+            
             if (namedValues.ContainsKey(name))
                 return builder.BuildLoad2(variableTypes[name], namedValues[name], name);
+            
             return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
         }
+        
+        // Literal o expresión entre paréntesis
         return base.VisitPrimary(context);
     }
 
     public override LLVMValueRef VisitUnary([NotNull] RedLangParser.UnaryContext context)
     {
-        if (context.primary() == null)
+        // Si tenemos operador unario (- o not)
+        if (context.MINUS() != null || context.NOT() != null)
         {
-            Console.WriteLine("[ERROR] VisitUnary: primary() es null");
-            return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
+            // Primero verificar si hay un unary anidado
+            if (context.unary() != null)
+            {
+                var value = Visit(context.unary());
+                
+                if (value.Handle == IntPtr.Zero)
+                {
+                    Console.WriteLine("[ERROR] VisitUnary: Visit(unary) devolvió un valor nulo");
+                    return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
+                }
+
+                if (context.MINUS() != null)
+                    return value.TypeOf.Kind == LLVMTypeKind.LLVMIntegerTypeKind
+                        ? builder.BuildNeg(value, "negtmp")
+                        : builder.BuildFNeg(value, "fnegtmp");
+                else if (context.NOT() != null)
+                    return builder.BuildNot(value, "nottmp");
+            }
+        }
+        
+        // Si no hay operador unario, visitar el primary
+        if (context.primary() != null)
+        {
+            var value = Visit(context.primary());
+            
+            if (value.Handle == IntPtr.Zero)
+            {
+                Console.WriteLine("[ERROR] VisitUnary: Visit(primary) devolvió un valor nulo");
+                return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
+            }
+            
+            return value;
         }
 
-        var value = Visit(context.primary());
-
-        if (value.Handle == IntPtr.Zero)
-        {
-            Console.WriteLine("[ERROR] VisitUnary: Visit(primary) devolvió un valor nulo");
-            return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
-        }
-
-        if (context.MINUS() != null)
-            return value.TypeOf.Kind == LLVMTypeKind.LLVMIntegerTypeKind
-                ? builder.BuildNeg(value, "negtmp")
-                : builder.BuildFNeg(value, "fnegtmp");
-        else if (context.NOT() != null)
-            return builder.BuildNot(value, "nottmp");
-        return value;
+        return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
     }
 
     public override LLVMValueRef VisitFactor([NotNull] RedLangParser.FactorContext context)
@@ -513,6 +528,7 @@ public class LLVMCodeGeneratorVisitor : RedLangBaseVisitor<LLVMValueRef>
         return builder.BuildCall2(printfType, printfFunc, new[] { formatStr2, value }, "printcall");
     }
     
+    
     public override LLVMValueRef VisitIfStmt([NotNull] RedLangParser.IfStmtContext context)
     {
         var condition = Visit(context.expression());
@@ -523,9 +539,12 @@ public class LLVMCodeGeneratorVisitor : RedLangBaseVisitor<LLVMValueRef>
         if (context.OTHERWISE() != null)
             elseBlock = currentFunction.AppendBasicBlock("else");
 
+        // Crear merge block temporalmente
+        var mergeBlock = currentFunction.AppendBasicBlock("ifcont");
+
         // Crear condicional inicial
         builder.BuildCondBr(condition, thenBlock, 
-            context.OTHERWISE() != null ? elseBlock : currentFunction.AppendBasicBlock("endif_tmp"));
+            context.OTHERWISE() != null ? elseBlock : mergeBlock);
 
         // THEN
         builder.PositionAtEnd(thenBlock);
@@ -543,51 +562,38 @@ public class LLVMCodeGeneratorVisitor : RedLangBaseVisitor<LLVMValueRef>
             elseHasTerminator = currentBlock.Terminator.Handle != IntPtr.Zero;
         }
 
-        // Solo creamos mergeBlock si alguno de los dos NO termina
-        bool needsMerge = (!thenHasTerminator || !elseHasTerminator) || HasCodeAfter(context);
-        LLVMBasicBlockRef mergeBlock = default;
-        if (needsMerge)
-            mergeBlock = currentFunction.AppendBasicBlock("ifcont");
-
-        // Enlazar ramas sin terminator al merge
-        if (!thenHasTerminator)
+        // Si ambas ramas terminan, eliminar el merge block
+        bool bothTerminate = thenHasTerminator && (context.OTHERWISE() == null || elseHasTerminator);
+        
+        if (bothTerminate)
         {
-            builder.PositionAtEnd(thenBlock);
-            builder.BuildBr(mergeBlock);
+            // Eliminar el merge block ya que no se usa
+            mergeBlock.Delete();
+            // No hay currentBlock válido después de esto
+            currentBlock = default;
         }
-
-        if (context.OTHERWISE() != null && !elseHasTerminator)
+        else
         {
-            builder.PositionAtEnd(elseBlock);
-            builder.BuildBr(mergeBlock);
-        }
+            // Enlazar ramas sin terminator al merge
+            if (!thenHasTerminator)
+            {
+                builder.PositionAtEnd(thenBlock);
+                builder.BuildBr(mergeBlock);
+            }
 
-        // Continuar en mergeBlock (solo si existe)
-        if (needsMerge)
-        {
+            if (context.OTHERWISE() != null && !elseHasTerminator)
+            {
+                builder.PositionAtEnd(elseBlock);
+                builder.BuildBr(mergeBlock);
+            }
+
+            // Continuar en mergeBlock
             builder.PositionAtEnd(mergeBlock);
             currentBlock = mergeBlock;
         }
 
         return default;
     }
-
-
-// Función auxiliar para saber si hay código después del if
-private bool HasCodeAfter(RedLangParser.IfStmtContext context)
-{
-    if (context.Parent is RedLangParser.BlockContext parent)
-    {
-        var statements = parent.statement();
-        for (int i = 0; i < statements.Length; i++)
-        {
-            if (object.ReferenceEquals(statements[i], context))
-                return i < statements.Length - 1; // hay código después
-        }
-    }
-    return false;
-}
-
 
 public override LLVMValueRef VisitWhileStmt([NotNull] RedLangParser.WhileStmtContext context)
 {
@@ -613,7 +619,6 @@ public override LLVMValueRef VisitWhileStmt([NotNull] RedLangParser.WhileStmtCon
 
     return default;
 }
-
 
     public override LLVMValueRef VisitForStmt([NotNull] RedLangParser.ForStmtContext context)
     {
@@ -657,7 +662,6 @@ public override LLVMValueRef VisitWhileStmt([NotNull] RedLangParser.WhileStmtCon
 
         return default;
     }
-
     public override LLVMValueRef VisitCallExpr([NotNull] RedLangParser.CallExprContext context)
     {
         Console.WriteLine("\n[DEBUG-CALL] ==> Entrando a VisitCallExpr...");
@@ -731,16 +735,40 @@ public override LLVMValueRef VisitWhileStmt([NotNull] RedLangParser.WhileStmtCon
         return VisitChildren(context);
     }
 
+    public override LLVMValueRef VisitArrayAccess([NotNull] RedLangParser.ArrayAccessContext context)
+    {
+       string arrayName = context.IDENT().GetText();
+            
+        if (!arrayPointers.ContainsKey(arrayName))
+        {
+            Console.WriteLine($"[ERROR] Array '{arrayName}' no declarado");
+            return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
+        }
+
+        var arrayPtr = arrayPointers[arrayName];
+        var indexExpr = Visit(context.expression());
+            
+        // Obtener el puntero al elemento
+        var elementPtr = builder.BuildGEP2(
+            LLVMTypeRef.Int32,
+            arrayPtr,
+            new[] { indexExpr },
+            "arrayidx"
+        );
+            
+        // Cargar el valor
+        return builder.BuildLoad2(LLVMTypeRef.Int32, elementPtr, "arrayload");
+    }  
     public override LLVMValueRef VisitReadStmt([NotNull] RedLangParser.ReadStmtContext context)
     {
         string varName = context.IDENT().GetText();
-        
+
         if (!namedValues.ContainsKey(varName))
         {
             Console.WriteLine($"[ERROR] VisitReadStmt: Variable '{varName}' no definida");
             return default;
         }
-        
+
         // Asegurar que scanf esté declarado
         if (!functions.ContainsKey("scanf"))
         {
@@ -752,47 +780,223 @@ public override LLVMValueRef VisitWhileStmt([NotNull] RedLangParser.WhileStmtCon
             functions["scanf"] = module.AddFunction("scanf", scanfFuncType);
             functionTypes["scanf"] = scanfFuncType;
         }
-        
+
         var scanfFunc = functions["scanf"];
         var scanfFunctionType = functionTypes["scanf"];
-        var varPtr = namedValues[varName];
+        var varPtr = namedValues[varName]; 
         var varType = variableTypes[varName];
-        
-        // Determinar el formato según el tipo
+
         string format;
-        if (varType == LLVMTypeRef.Int32)
+        LLVMValueRef targetPtr; 
+
+
+        if (varType.Kind == LLVMTypeKind.LLVMPointerTypeKind)
         {
-            format = "%d";
+            format = "%s"; // Formato para string
+
+
+            const uint bufferSize = 1024;
+            var bufferType = LLVMTypeRef.CreateArray(LLVMTypeRef.Int8, bufferSize);
+            var bufferAlloca = builder.BuildAlloca(bufferType, $"{varName}_buffer");
+
+            targetPtr = builder.BuildGEP2(bufferType, bufferAlloca,
+                new[] {
+                    LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0), 
+                    LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0)  
+                },
+            "buffer_ptr");
+
+            var originalStringPtr = varPtr;
+
+            var formatStr = GetOrCreateFormatString(format);
+            var scanCall = builder.BuildCall2(scanfFunctionType, scanfFunc, new[] { formatStr, targetPtr }, "scancall");
+            
+          
+            builder.BuildStore(targetPtr, originalStringPtr);
+
+            return scanCall;
         }
-        else if (varType == LLVMTypeRef.Double)
+        else 
         {
-            format = "%lf";
-        }
-        else if (varType.Kind == LLVMTypeKind.LLVMPointerTypeKind)
-        {
-            format = "%s";
-        }
-        else if (varType == LLVMTypeRef.Int1)
-        {
-            format = "%d";
-        }
-        else
-        {
-            format = "%d"; // default
+            targetPtr = varPtr; 
+            if (varType == LLVMTypeRef.Int32)
+            {
+                format = "%d";
+            }
+            else if (varType == LLVMTypeRef.Double)
+            {
+                format = "%lf";
+            }
+            else if (varType == LLVMTypeRef.Int1)
+            {
+                format = "%d"; 
+            }
+            else
+            {
+                format = "%d"; // Default
+            }
         }
         
-        var formatStr = GetOrCreateFormatString(format);
-        
-        // Llamar scanf con el formato y la dirección de la variable
-        return builder.BuildCall2(scanfFunctionType, scanfFunc, new[] { formatStr, varPtr }, "scancall");
+
+        var finalFormatStr = GetOrCreateFormatString(format);
+
+        return builder.BuildCall2(scanfFunctionType, scanfFunc, new[] { finalFormatStr, targetPtr }, "scancall");
     }
     public override LLVMValueRef VisitArguments([NotNull] RedLangParser.ArgumentsContext context) => VisitChildren(context);
     public override LLVMValueRef VisitParam([NotNull] RedLangParser.ParamContext context) => VisitChildren(context);
     public override LLVMValueRef VisitParameters([NotNull] RedLangParser.ParametersContext context) => VisitChildren(context);
     public override LLVMValueRef VisitType([NotNull] RedLangParser.TypeContext context) => VisitChildren(context);
-    public override LLVMValueRef VisitArrayAccess([NotNull] RedLangParser.ArrayAccessContext context) => default;
-    public override LLVMValueRef VisitArrayAssignment([NotNull] RedLangParser.ArrayAssignmentContext context) => default;
-    public override LLVMValueRef VisitReadFileStmt([NotNull] RedLangParser.ReadFileStmtContext context) => default;
-    public override LLVMValueRef VisitWriteFileStmt([NotNull] RedLangParser.WriteFileStmtContext context) => default;
+    public override LLVMValueRef VisitArrayAssignment([NotNull] RedLangParser.ArrayAssignmentContext context)
+    {
+        var arrayAccessCtx = context.arrayAccess();
+        string arrayName = arrayAccessCtx.IDENT().GetText();
+
+        if (!arrayPointers.ContainsKey(arrayName))
+        {
+            Console.WriteLine($"[ERROR] Array '{arrayName}' no declarado");
+            return default;
+        }
+
+        var arrayPtr = arrayPointers[arrayName];
+        var indexExpr = Visit(arrayAccessCtx.expression());
+        var value = Visit(context.expression());
+
+        // Obtener el puntero al elemento
+        var elementPtr = builder.BuildGEP2(
+            LLVMTypeRef.Int32,
+            arrayPtr,
+            new[] { indexExpr },
+            "arrayidx"
+        );
+
+        // Almacenar el valor
+        builder.BuildStore(value, elementPtr);
+        return value;
+    }
+    public override LLVMValueRef VisitReadFileStmt([NotNull] RedLangParser.ReadFileStmtContext context)
+    {
+        // Por ahora, solo imprimir un mensaje de que no está implementado
+        var printfFunc = EnsurePrintfDeclared();
+        var printfType = functionTypes["show"];
+        var formatStr = GetOrCreateFormatString("readfile: no implementado\n");
+
+        return builder.BuildCall2(printfType, printfFunc, new[] { formatStr }, "readfile_stub");
+    }
+    public override LLVMValueRef VisitWriteFileStmt([NotNull] RedLangParser.WriteFileStmtContext context)
+    {
+        // Por ahora, solo imprimir un mensaje de que no está implementado
+        var printfFunc = EnsurePrintfDeclared();
+        var printfType = functionTypes["show"];
+        var formatStr = GetOrCreateFormatString("writefile: no implementado\n");
+
+        return builder.BuildCall2(printfType, printfFunc, new[] { formatStr }, "writefile_stub");
+    }
+
+    //METODOS AUXILIARES
+
+    private LLVMValueRef BuildCast(LLVMValueRef value, LLVMTypeRef destType, string name = "casttmp")
+    {
+        var sourceType = value.TypeOf;
+
+        if (sourceType.Handle == destType.Handle)
+        {
+            return value; // No se necesita cast, los tipos ya son iguales
+        }
+
+        // De entero a flotante (i32 -> double)
+        if (sourceType.Kind == LLVMTypeKind.LLVMIntegerTypeKind && destType.Kind == LLVMTypeKind.LLVMDoubleTypeKind)
+        {
+            return builder.BuildSIToFP(value, destType, name); // SIToFP = Signed Integer to Floating Point
+        }
+
+        // De flotante a entero (double -> i32)
+        if (sourceType.Kind == LLVMTypeKind.LLVMDoubleTypeKind && destType.Kind == LLVMTypeKind.LLVMIntegerTypeKind)
+        {
+            return builder.BuildFPToSI(value, destType, name); // FPToSI = Floating Point to Signed Integer
+        }
+
+        // De booleano (i1) a entero (i32) o flotante (double)
+        if (sourceType.Kind == LLVMTypeKind.LLVMIntegerTypeKind && sourceType.IntWidth == 1)
+        {
+            if (destType.Kind == LLVMTypeKind.LLVMIntegerTypeKind) // i1 -> i32
+            {
+                return builder.BuildZExt(value, destType, name); // ZExt = Zero Extend
+            }
+            if (destType.Kind == LLVMTypeKind.LLVMDoubleTypeKind) // i1 -> double
+            {
+                var intVal = builder.BuildZExt(value, LLVMTypeRef.Int32, "i1toi32");
+                return builder.BuildSIToFP(intVal, destType, name);
+            }
+        }
+
+        // Si no se encuentra una conversión válida, devuelve el valor original (puede causar errores de LLVM, pero evita que el compilador se caiga)
+        Console.WriteLine($"[WARNING] No cast available from {sourceType} to {destType}");
+        return value;
+    }
+        public string GetIR()
+    {
+        return module.PrintToString();
+    }
+
+    public void WriteIRToFile(string filename)
+    {
+        module.PrintToFile(filename);
+    }
+
+    private LLVMTypeRef GetLLVMType(string typeName)
+    {
+        return typeName switch
+        {
+            "i" => LLVMTypeRef.Int32,
+            "f" => LLVMTypeRef.Double,
+            "s" => LLVMTypeRef.CreatePointer(LLVMTypeRef.Int8, 0),
+            "b" => LLVMTypeRef.Int1,
+            _ => LLVMTypeRef.Int32
+        };
+    }
+
+    private LLVMValueRef GetDefaultValue(LLVMTypeRef type)
+    {
+        if (type.Kind == LLVMTypeKind.LLVMIntegerTypeKind)
+            return LLVMValueRef.CreateConstInt(type, 0, false);
+        else if (type.Kind == LLVMTypeKind.LLVMDoubleTypeKind)
+            return LLVMValueRef.CreateConstReal(type, 0.0);
+        else if (type.Kind == LLVMTypeKind.LLVMPointerTypeKind)
+            return LLVMValueRef.CreateConstPointerNull(type);
+        return LLVMValueRef.CreateConstInt(LLVMTypeRef.Int32, 0, false);
+    }
+
+    // ----------------- Helpers para printf/show -----------------
+    private LLVMValueRef EnsurePrintfDeclared()
+    {
+        // Si ya registramos printf (bajo la clave "show"), devolvemos esa referencia
+        if (functions.ContainsKey("show"))
+            return functions["show"];
+
+        // Crear tipo de printf: int printf(i8* fmt, ...)
+        var printfParamTypes = new[] { LLVMTypeRef.CreatePointer(LLVMTypeRef.Int8, 0) };
+        var printfType = LLVMTypeRef.CreateFunction(LLVMTypeRef.Int32, printfParamTypes, true);
+
+        var printfFunc = module.AddFunction("printf", printfType);
+
+        // Guardamos en los diccionarios pero bajo la clave "show" para que el resto del código
+        // pueda usar functions["show"] cuando el usuario escriba show(...)
+        functions["show"] = printfFunc;
+        functionTypes["show"] = printfType;
+
+        return printfFunc;
+    }
+
+    private LLVMValueRef GetOrCreateFormatString(string format)
+    {
+        if (formatStrings.ContainsKey(format))
+            return formatStrings[format];
+
+        // BuildGlobalStringPtr crea un global y devuelve i8* apuntando a él
+        var gstr = builder.BuildGlobalStringPtr(format, "fmt");
+        formatStrings[format] = gstr;
+        return gstr;
+    }
+    // ----
 }
 

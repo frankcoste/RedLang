@@ -1,90 +1,130 @@
-declare num1: i;
-declare num2: i;
+//Entrada por consola
+declare nombre:s;
+show("Bienvenido Ingrese su nombre: ");
+ask(nombre);
+show("Gracias por probar mi compilador ");
+show(nombre);
 
-show("Ingresa num1: ");
-ask(num1);
 
-show("Ingresa num2: ");
-ask(num2);
-func suma(num1: i, num2: i) : i {
-    give num1 + num2;
+// --- 1. Declaraciones iniciales ---
+show("--- Declaraciones iniciales ---");
+declare age: i = 25;
+show("Edad inicial:");
+show(age);
+
+declare price: f = 19.99;
+show("Precio inicial:");
+show(price);
+
+declare name: s = "RedLang";
+show("Nombre inicial:");
+show(name);
+
+declare isActive: b = true;
+show("Estado inicial (isActive):");
+show(isActive);
+
+// Declaraciones sin valor inicial explícito
+declare maybeNumber: i?;
+declare scores: array[i];
+declare nombre : s ;
+
+// --- 2. Asignaciones simples y a arrays ---
+show("--- Asignaciones ---");
+set age = 30;
+show("Nueva edad:");
+show(age);
+
+set scores[0] = 100;
+show("Puntaje en scores[0]:");
+show(scores[0]);
+
+set scores[1] = age + 5;
+show("Puntaje en scores[1] (edad + 5):");
+show(scores[1]);
+
+// --- 3. Expresiones: aritméticas, relacionales, lógicas ---
+show("--- Expresiones ---");
+declare x: f = 10;
+declare y: f = 3;
+declare result: f = (x * 2.5) + (y / 2.0);
+show("Resultado de (x * 2.5) + (y / 2.0):");
+show(result);
+
+declare flag: b = (x >= y) and (not (x == 0.0));
+show("Resultado de flag (x >= y) and (not (x == 0.0)):");
+show(flag);
+
+declare isEqual: b = (x != y) or false;
+show("Resultado de isEqual (x != y) or false:");
+show(isEqual);
+
+// --- 4. Estructura condicional ---
+show("--- Estructura condicional (check) ---");
+check (age >= 18) {
+    show("Eres mayor de edad");
+} otherwise {
+    show("Eres menor de edad");
 }
 
-func resta(num1: i, num2: i) : i {
-    give num1 - num2;
+// --- 5. Bucle while (repeat) ---
+show("--- Bucle while (repeat) ---");
+declare counter: i = 3;
+repeat (counter > 0) {
+    show("Cuenta regresiva: ");
+    show(counter);
+    set counter = counter - 1;
 }
 
-func multiplica(num1: i, num2: i) : i {
-    give num1 * num2;
+// --- 6. Bucle for (loop) ---
+show("--- Bucle for (loop) ---");
+loop (declare j: i = 0; j < 3; set j = j + 1) {
+    show("Índice: ");
+    show(j);
 }
 
-func factorial(num: i) : i {
-    check (num <= 1) {
-        give 1;
+// --- 7. Funciones (definiciones) ---
+func add(a: i, c: i): i {
+    give a + c;
+}
+
+func isPositive(n: i): b {
+    check (n > 0) {
+        give true;
     } otherwise {
-        give num * factorial(num - 1);
+        give false;
     }
 }
 
-declare negativo:i = -10;
+// --- 8. Llamadas a funciones ---
+show("--- Llamadas a funciones ---");
+declare total: i = add(7, 8);
+show("Suma (resultado de add(7, 8)):");
+show(total);
 
-declare resultado_suma: i = suma(num1, num2);
-show("Resultado suma:");
-show(resultado_suma);
+declare positive: b = isPositive(-5);
+show("¿Es positivo? (resultado de isPositive(-5)):");
+show(positive);
 
-declare resultado_resta: i = resta(num1, num2);
-show("Resultado resta:");
-show(resultado_resta);
-
-declare resultado_mult: i = multiplica(num1, num2);
-show("Resultado multiplicación:");
-show(resultado_mult);
-
-declare contador: i = 0;
-repeat (contador < 3) {
-    set contador = contador + 1;
-    show("Contador:");
-    show(contador);
+// --- 9. Valores nulos y tipos opcionales ---
+show("--- Valores nulos ---");
+declare empty: s? = null;
+check (empty == null) {
+    show("La variable 'empty' es null");
 }
 
-declare total: i = 0;
-loop (declare idx: i = 0; idx < 5; set idx = idx + 1) {
-    set total = total + idx;
-    show("Total acumulado:");
-    show(total);
-}
+// --- 10. Operaciones con arrays ---
+show("--- Operaciones con arrays ---");
+declare first: i = scores[0];
+show("Valor de 'first' (tomado de scores[0]):");
+show(first);
 
-declare mayor: i = 0;
-check (num1 > num2) {
-    set mayor = num1;
-} otherwise {
-    set mayor = num2;
-}
-show("Mayor valor:");
-show(mayor);
+set scores[2] = add(scores[0], scores[1]);
+show("Valor de scores[2] (resultado de add(scores[0], scores[1])):");
+show(scores[2]);
 
-declare fact5: i = factorial(5);
-show("Factorial de 5:");
-show(fact5);
-
-declare precio: f = 19.99;
-declare descuento: f = 0.15;
-declare precio_final: f = precio - precio * descuento;
-show("Precio final:");
-show(precio_final);
-
-declare es_valido: b = true;
-declare no_valido: b = false;
-
-show("Es válido:");
-show(es_valido);
-show("No válido:");
-show(no_valido);
-
-declare division: f = 20.0 / 4.0;
-show("División 20/4:");
-show(division);
-
-declare modulo: i = 17 % 5;
-show("Módulo 17%5:");
-show(modulo);
+// --- 11. Expresión compleja anidada ---
+show("--- Expresión compleja ---");
+declare complex: b = ((5 + 3 * 2) >= 10) and (not (true == false or null == null));
+show("Resultado de la expresión compleja:");
+show(complex);
