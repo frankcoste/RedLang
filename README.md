@@ -72,10 +72,6 @@ MiProyectoANTLR/
 
 Para la sintaxis completa del lenguaje, consulta [SINTAXIS.md](SINTAXIS.md)
 
-## Licencia
-
-MIT License
-
 ## Contribuciones
 
 Las contribuciones son bienvenidas. Por favor:
