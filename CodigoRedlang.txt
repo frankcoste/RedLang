@@ -27,7 +27,7 @@ show(isActive);
 // Declaraciones sin valor inicial explícito
 declare maybeNumber: i?;
 declare scores: array[i];
-declare nombre : s ;
+// 'nombre' ya fue declarado arriba para el ask()
 
 // --- 2. Asignaciones simples y a arrays ---
 show("--- Asignaciones ---");
@@ -123,7 +123,33 @@ set scores[2] = add(scores[0], scores[1]);
 show("Valor de scores[2] (resultado de add(scores[0], scores[1])):");
 show(scores[2]);
 
-// --- 11. Expresión compleja anidada ---
+// --- 11. Recorriendo un Arreglo de Números ---
+show("--- Recorriendo un Arreglo de Números ---");
+
+// Primero, declaramos el arreglo y lo llenamos con valores.
+declare numberList: array[i];
+set numberList[0] = 11;
+set numberList[1] = 22;
+set numberList[2] = 33;
+set numberList[3] = 44;
+declare listSize: i = 4; // Variable para controlar el tamaño del arreglo.
+
+// Recorremos el arreglo usando un bucle 'repeat' (while)
+show("Recorriendo con 'repeat' (while):");
+declare i_while: i = 0;
+repeat (i_while < listSize) {
+    show(numberList[i_while]);
+    set i_while = i_while + 1;
+}
+
+// Recorremos el mismo arreglo usando un bucle 'loop' (for)
+show("Recorriendo con 'loop' (for):");
+loop (declare i_for: i = 0; i_for < listSize; set i_for = i_for + 1) {
+    show(numberList[i_for]);
+}
+
+
+// --- 12. Expresión compleja anidada ---
 show("--- Expresión compleja ---");
 declare complex: b = ((5 + 3 * 2) >= 10) and (not (true == false or null == null));
 show("Resultado de la expresión compleja:");
