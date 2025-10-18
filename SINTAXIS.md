@@ -454,7 +454,22 @@ loop (declare i: i = 1; i <= 10; set i = i + 1) {
 }
 ```
 
----
+### Secuencia de Fibonacci
+```redlang
+show("--- Secuencia de Fibonacci ---");
+declare a: i = 0;
+declare c: i = 1;
+show(a);
+declare next: i
+repeat (c <= 1000) {
+    show(c);
+
+    set next = a + c;
+    set a = c;
+    set c = next;
+}
+```
+
 
 ## Palabras Reservadas
 ```
