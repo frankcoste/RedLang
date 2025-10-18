@@ -57,7 +57,7 @@ show(resultado);
 
 ## Estructura del Proyecto
 ```
-MiProyectoANTLR/
+Direct.RedLang/
 ├── Generated/              # Archivos generados por ANTLR
 │   ├── ExprLexer.g4       # Gramática del lexer
 │   ├── RedLang.g4         # Gramática del parser
